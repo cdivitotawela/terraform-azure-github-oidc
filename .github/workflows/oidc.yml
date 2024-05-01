@@ -1,0 +1,12 @@
+name: Terraform Azure GitHub OIDC
+
+on:
+  push:
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4

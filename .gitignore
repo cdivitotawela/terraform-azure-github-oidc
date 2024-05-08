@@ -1,0 +1,4 @@
+.envrc
+backend.tfvars
+**/.terraform
+init/terraform.tfstate*

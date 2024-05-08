@@ -1,0 +1,157 @@
+name: Terraform Azure GitHub OIDC
+
+on:
+  push:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  terraform_version: '1.3.8'
+  
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure CLI login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.terraform_version }}
+
+      - name: Terraform Format Check
+        id: tf-fmt
+        run: terraform fmt -check
+        working-directory: 'main'
+
+      # This is not required if the backend.tfvars is committed to the repository
+      - name: Generate backend.tfvars
+        run: |
+          echo resource_group_name  = \"${{ secrets.AZURE_RESOURCE_GROUP }}\" > ${{ github.workspace }}/backend.tfvars
+          echo storage_account_name = \"${{ secrets.AZURE_STOREAGE_ACCOUNT }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo container_name       = \"${{ secrets.AZURE_CONTAINER_NAME }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo subscription_id      = \"${{ secrets.AZURE_SUBSCRIPTION_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo tenant_id            = \"${{ secrets.AZURE_TENANT_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo client_id            = \"${{ secrets.AZURE_CLIENT_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+
+      - name: Terraform Validate
+        id: validate
+        run: |
+          terraform init -backend-config=../backend.tfvars
+          terraform validate
+        working-directory: 'main'
+
+      - name: Terraform tfsec
+        uses: aquasecurity/tfsec-sarif-action@v0.1.4
+        with:
+          sarif_file: tfsec.sarif
+          working_directory: 'main'
+
+  plan:
+    name: Terraform Plan
+    needs: ["validate"]
+    runs-on: ubuntu-latest
+    steps:    
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure CLI login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # This is not required if the backend.tfvars is committed to the repository
+      - name: Generate backend.tfvars
+        run: |
+          echo resource_group_name  = \"${{ secrets.AZURE_RESOURCE_GROUP }}\" > ${{ github.workspace }}/backend.tfvars
+          echo storage_account_name = \"${{ secrets.AZURE_STOREAGE_ACCOUNT }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo container_name       = \"${{ secrets.AZURE_CONTAINER_NAME }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo subscription_id      = \"${{ secrets.AZURE_SUBSCRIPTION_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo tenant_id            = \"${{ secrets.AZURE_TENANT_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo client_id            = \"${{ secrets.AZURE_CLIENT_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.terraform_version }}
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform init -backend-config=../backend.tfvars
+          terraform plan -out ${{ github.workspace }}/plan.tfplan
+        working-directory: 'main'
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ github.workspace }}/plan.tfplan
+
+  apply:
+    name: Terraform Apply
+    needs: [plan]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approval
+        run: echo "Approved by ${{ github.actor }}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure CLI login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # This is not required if the backend.tfvars is committed to the repository
+      - name: Generate backend.tfvars
+        run: |
+          echo resource_group_name  = \"${{ secrets.AZURE_RESOURCE_GROUP }}\" > ${{ github.workspace }}/backend.tfvars
+          echo storage_account_name = \"${{ secrets.AZURE_STOREAGE_ACCOUNT }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo container_name       = \"${{ secrets.AZURE_CONTAINER_NAME }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo subscription_id      = \"${{ secrets.AZURE_SUBSCRIPTION_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo tenant_id            = \"${{ secrets.AZURE_TENANT_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+          echo client_id            = \"${{ secrets.AZURE_CLIENT_ID }}\" >> ${{ github.workspace }}/backend.tfvars
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.terraform_version }}
+
+      - name: Initialize Terraform
+        run: terraform init -backend-config=../backend.tfvars
+        working-directory: 'main'
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: main
+        
+      - name: Terraform Show
+        run: terraform show "plan.tfplan"
+        working-directory: 'main'
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve "plan.tfplan"
+        working-directory: 'main'

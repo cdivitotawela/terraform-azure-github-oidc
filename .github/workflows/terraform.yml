@@ -1,7 +1,7 @@
 name: Terraform Azure GitHub OIDC
 
 on:
-  push:
+  workflow_dispatch:
 
 permissions:
   id-token: write
